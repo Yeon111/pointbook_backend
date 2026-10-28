@@ -9,6 +9,11 @@ import com.example.point_book_backend.service.RentalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile; // 새롭게 추가된 임포트
+
+import java.io.File; // 새롭게 추가된 임포트
+import java.util.ArrayList; // 새롭게 추가된 임포트
+import java.util.UUID; // 새롭게 추가된 임포트
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -75,17 +80,49 @@ public class BookController {
         return bookRepository.save(book);
     }
 
+    // ==========================================
+    // 🚨 [수정 완료] 프론트엔드 다중 사진 업로드(FormData) 완벽 대응
+    // ==========================================
     @PostMapping("/reports")
-    public ResponseEntity<?> addReport(@RequestBody Map<String, Object> request) {
+    public ResponseEntity<?> addReport(
+            @RequestParam("bookId") Long bookId,
+            @RequestParam("reporter") String reporter,
+            @RequestParam("detail") String detail,
+            @RequestParam("date") String date,
+            @RequestParam(value = "images", required = false) List<MultipartFile> images) {
+
         try {
-            Long bookId = Long.valueOf(request.get("bookId").toString());
             Book book = bookRepository.findById(bookId)
                     .orElseThrow(() -> new IllegalArgumentException("도서를 찾을 수 없습니다."));
 
+            List<String> imageUrls = new ArrayList<>();
+
+            // 1. 프론트에서 실제 파일이 넘어왔다면 EC2 서버 폴더에 물리적으로 저장
+            if (images != null && !images.isEmpty()) {
+                for (MultipartFile file : images) {
+                    if (file.isEmpty()) continue;
+
+                    // 파일 이름이 겹치지 않게 고유 식별자(UUID) 생성
+                    String uuidFilename = UUID.randomUUID().toString() + "_" + file.getOriginalFilename();
+
+                    // AWS EC2 서버의 /home/ubuntu/uploads/ 폴더에 저장
+                    File dest = new File("/home/ubuntu/uploads/" + uuidFilename);
+                    file.transferTo(dest);
+
+                    // 누구나 볼 수 있는 공용 URL 생성 후 리스트에 담기
+                    String publicUrl = "/uploads/" + uuidFilename;
+                    imageUrls.add(publicUrl);
+                }
+            }
+
             Report report = new Report();
-            report.setContent(request.get("detail") != null ? request.get("detail").toString() : "내용 없음");
-            report.setReporter(request.get("reporter") != null ? request.get("reporter").toString() : "익명");
-            report.setImage(request.get("image") != null ? request.get("image").toString() : null);
+            report.setContent(detail != null ? detail : "내용 없음");
+            report.setReporter(reporter != null ? reporter : "익명");
+
+            // 프론트엔드의 JSON.parse() 에러를 방지하기 위해 완벽한 문자열 배열 ["url1", "url2"] 형태로 가공하여 저장
+            String jsonImageArray = imageUrls.isEmpty() ? null : "[\"" + String.join("\",\"", imageUrls) + "\"]";
+            report.setImage(jsonImageArray);
+
             report.setReportTime(java.time.LocalDateTime.now());
 
             report.setBook(book);
@@ -125,9 +162,6 @@ public class BookController {
         }
     }
 
-    // ==========================================
-    // 🚨 [마지막 추가] 프론트엔드 체크리스트 1번: 포인트 업데이트 API
-    // ==========================================
     @PostMapping("/users/points")
     public ResponseEntity<?> updatePoints(@RequestBody Map<String, Object> request) {
         try {
@@ -137,9 +171,7 @@ public class BookController {
 
             int pointData = Integer.parseInt(request.get("points").toString());
 
-            // 프론트에서 계산된 최종 포인트를 받아서 그대로 DB에 덮어씁니다.
             user.setPointBalance(pointData);
-
             userRepository.save(user);
 
             return ResponseEntity.ok(Map.of(

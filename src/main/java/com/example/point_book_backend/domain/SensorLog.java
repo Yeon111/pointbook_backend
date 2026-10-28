@@ -1,6 +1,7 @@
 package com.example.point_book_backend.domain;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.CreationTimestamp; // 1. 이 줄을 새로 추가합니다.
 import java.time.LocalDateTime;
 
 @SuppressWarnings("JpaDataSourceORMInspection")
@@ -22,12 +23,13 @@ public class SensorLog {
     @Column(name = "door_status")
     private Boolean doorStatus; // 문 닫힘 여부
 
-    @Column(name = "recorded_at")
+    @CreationTimestamp // 2. 여기에 어노테이션을 추가합니다.
+    @Column(name = "recorded_at", updatable = false) // 3. 괄호 안에 updatable = false를 추가합니다.
     private LocalDateTime recordedAt; // 감지 시각
 
     public SensorLog() {}
 
-    // Getters and Setters
+    // Getters and Setters (아래 부분은 기존 코드 그대로 두시면 됩니다)
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
