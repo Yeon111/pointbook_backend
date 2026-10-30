@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 public class RentalService {
@@ -41,7 +42,7 @@ public class RentalService {
         book.setRentalDueDate(dueTime);
         bookRepository.saveAndFlush(book);
 
-        // 대여 기록 생성 및 인증번호 세팅 👈
+        // 대여 기록 생성 및 인증번호 세팅
         Rental rental = new Rental();
         rental.setUserId(user.getId());
         rental.setBookId(bookId);
@@ -56,7 +57,6 @@ public class RentalService {
 
         // 책에 지정된 보관함 번호가 있다면 rental의 cabinetSlot에도 자동 반영
         if (book.getStorageNo() != null) {
-            // 예시로 보관함 번호를 숫자로 추출하거나 기본값 부여 (필요시 조정 가능)
             rental.setCabinetSlot(1);
         }
 
@@ -76,6 +76,7 @@ public class RentalService {
 
     @Transactional
     public void returnBook(Long bookId) {
+        // 1. 도서 상태를 다시 '대여 가능'으로 복구
         Book book = bookRepository.findById(bookId)
                 .orElseThrow(() -> new IllegalArgumentException("도서 없음"));
 
@@ -84,35 +85,47 @@ public class RentalService {
         book.setRentalTimeLeft(0L);
         book.setRentalDueDate(null);
         bookRepository.saveAndFlush(book);
+
+        // 2. Rental(대여) 테이블에서 '대여중'인 기록을 찾아 '반납/회수완료' 처리 및 시간 기록
+        List<Rental> rentals = rentalRepository.findAll();
+        for (Rental r : rentals) {
+            if (r.getBookId().equals(bookId) && "대여중".equals(r.getStatus())) {
+                r.setStatus("반납/회수완료"); // 상태 변경
+                r.setReturnTime(LocalDateTime.now()); // 현재 시간을 반납 시간으로 저장
+                rentalRepository.saveAndFlush(r);
+                break;
+            }
+        }
     }
 
+    // 👇 [수정됨] Repository 변경에 맞춰 에러가 나지 않도록 최신 데이터 조회 방식으로 변경
     @Transactional
     public void saveSequentialAuthCodes(Integer cabinetSlot, String auth_code_1, String auth_code_2) {
-        Rental rental = rentalRepository.findByCabinetSlot(cabinetSlot)
-                .orElseGet(() -> {
-                    Rental latestRental = rentalRepository.findTopByOrderByIdDesc()
-                            .orElseThrow(() -> new IllegalArgumentException("활성화된 대여 내역이 없습니다."));
-                    latestRental.setCabinetSlot(cabinetSlot);
-                    return latestRental;
-                });
-
+        Rental rental = rentalRepository.findTopByOrderByIdDesc()
+                .orElseThrow(() -> new IllegalArgumentException("활성화된 대여 내역이 없습니다."));
+        rental.setCabinetSlot(cabinetSlot);
         rental.setAuth_code_1(auth_code_1);
         rental.setAuth_code_2(auth_code_2);
     }
 
-    // 🚨 [추가/수정] 1단계 인증번호만 정확히 비교
+    // 🚀 [최종 수정됨] 1단계 검증: 키패드 번호로 직접 DB 조회 (과거 데이터 무시)
     public boolean verifyStep1Code(Integer cabinetSlot, String inputCode) {
-        Rental rental = rentalRepository.findByCabinetSlot(cabinetSlot)
-                .orElseThrow(() -> new IllegalArgumentException("해당 수납장의 대여 내역을 찾을 수 없습니다."));
+        String cleanInput = inputCode != null ? inputCode.trim() : "";
 
-        return rental.getAuth_code_1() != null && rental.getAuth_code_1().equals(inputCode);
+        // 하드웨어가 보낸 번호가 DB에 존재하는지 직접 족집게처럼 찾아냄
+        boolean isMatch = rentalRepository.findValidRentalForStep1(cabinetSlot, cleanInput).isPresent();
+
+        System.out.println("🚨 [1단계 인증] 수납장: " + cabinetSlot + ", 하드웨어가 쏜 번호: [" + cleanInput + "] -> 결과: " + isMatch);
+        return isMatch;
     }
 
-    // 🚨 [추가/수정] 2단계 인증번호만 정확히 비교
+    // 🚀 [최종 수정됨] 2단계 검증: 키패드 번호로 직접 DB 조회 (과거 데이터 무시)
     public boolean verifyStep2Code(Integer cabinetSlot, String inputCode) {
-        Rental rental = rentalRepository.findByCabinetSlot(cabinetSlot)
-                .orElseThrow(() -> new IllegalArgumentException("해당 수납장의 대여 내역을 찾을 수 없습니다."));
+        String cleanInput = inputCode != null ? inputCode.trim() : "";
 
-        return rental.getAuth_code_2() != null && rental.getAuth_code_2().equals(inputCode);
+        boolean isMatch = rentalRepository.findValidRentalForStep2(cabinetSlot, cleanInput).isPresent();
+
+        System.out.println("🚨 [2단계 인증] 수납장: " + cabinetSlot + ", 하드웨어가 쏜 번호: [" + cleanInput + "] -> 결과: " + isMatch);
+        return isMatch;
     }
 }
