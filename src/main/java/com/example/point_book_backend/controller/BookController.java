@@ -9,15 +9,14 @@ import com.example.point_book_backend.service.RentalService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile; // 새롭게 추가된 임포트
+import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File; // 새롭게 추가된 임포트
-import java.util.ArrayList; // 새롭게 추가된 임포트
-import java.util.UUID; // 새롭게 추가된 임포트
+import java.io.File;
+import java.util.ArrayList;
+import java.util.UUID;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api")
@@ -47,41 +46,76 @@ public class BookController {
         return ResponseEntity.ok(Map.of("success", true, "message", "회원가입 완료"));
     }
 
-    @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody Map<String, String> request) {
-        String studentId = request.get("studentId");
-        String pin = request.get("pin");
-
-        Optional<User> userOpt = userRepository.findByStudentId(studentId);
-        if (userOpt.isPresent() && userOpt.get().getPin().equals(pin)) {
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("name", userOpt.get().getName());
-
-            // 프론트엔드 체크리스트 2번: 포인트와 페널티 상태 전달
-            response.put("points", userOpt.get().getPointBalance());
-            response.put("penaltyStatus", userOpt.get().getPenaltyStatus());
-
-            return ResponseEntity.ok(response);
-        } else {
-            return ResponseEntity.status(401).body(Map.of("success", false, "message", "학번/비밀번호 불일치"));
-        }
-    }
+    // 💡 참고: 로그인 API는 이미 UserController에 구현되어 있으므로, 충돌 방지를 위해 여기서 완전히 제거했습니다!
 
     @GetMapping("/books")
     public List<Book> getBooks() {
         return bookRepository.findAllByOrderByIdDesc();
     }
 
+    // ==========================================
+    // 🚨 [최종 수정] 도서 등록 시 다중 사진 업로드(FormData) 완벽 대응
+    // ==========================================
     @PostMapping("/books")
-    public Book createBook(@RequestBody Book book) {
-        book.setIsAvailable(true);
-        book.setBorrower("");
-        return bookRepository.save(book);
+    public ResponseEntity<?> createBook(
+            @RequestParam("title") String title,
+            @RequestParam("author") String author,
+            @RequestParam(value = "publisher", required = false) String publisher,
+            @RequestParam(value = "condition", required = false) String condition,
+            @RequestParam(value = "storageNo", required = false) String storageNo,
+            @RequestParam(value = "owner", required = false) String owner,
+            @RequestParam(value = "images", required = false) List<MultipartFile> images) {
+
+        try {
+            List<String> imageUrls = new ArrayList<>();
+
+            // 1. 프론트에서 실제 파일(사진)이 넘어왔다면 EC2 서버 폴더에 물리적으로 저장
+            if (images != null && !images.isEmpty()) {
+                for (MultipartFile file : images) {
+                    if (file.isEmpty()) continue;
+
+                    // 파일 이름이 겹치지 않게 고유 식별자(UUID) 생성
+                    String uuidFilename = UUID.randomUUID().toString() + "_" + file.getOriginalFilename();
+
+                    // AWS EC2 서버의 /home/ubuntu/uploads/ 폴더에 저장
+                    File dest = new File("/home/ubuntu/uploads/" + uuidFilename);
+                    file.transferTo(dest);
+
+                    // 누구나 볼 수 있는 공용 URL 생성 후 리스트에 담기
+                    String publicUrl = "/uploads/" + uuidFilename;
+                    imageUrls.add(publicUrl);
+                }
+            }
+
+            // 2. 도서 엔티티 생성 및 정보 세팅
+            Book book = new Book();
+            book.setTitle(title);
+            book.setAuthor(author);
+            book.setPublisher(publisher);
+            book.setCondition(condition);
+            book.setStorageNo(storageNo);
+            book.setOwner(owner);
+
+            // 기본 상태 세팅
+            book.setIsAvailable(true);
+            book.setBorrower("");
+
+            // 3. 다중 이미지 URL을 JSON 배열 형태의 문자열로 변환하여 저장
+            String jsonImageArray = imageUrls.isEmpty() ? null : "[\"" + String.join("\",\"", imageUrls) + "\"]";
+            book.setImage(jsonImageArray);
+
+            bookRepository.save(book);
+
+            return ResponseEntity.ok(Map.of("success", true, "message", "도서 및 이미지가 성공적으로 등록되었습니다."));
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+        }
     }
 
     // ==========================================
-    // 🚨 [수정 완료] 프론트엔드 다중 사진 업로드(FormData) 완벽 대응
+    // 🚨 프론트엔드 다중 사진 업로드(FormData) 완벽 대응 (신고 기능)
     // ==========================================
     @PostMapping("/reports")
     public ResponseEntity<?> addReport(

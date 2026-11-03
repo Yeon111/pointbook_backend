@@ -1,32 +1,44 @@
 package com.example.point_book_backend.domain;
 
 import jakarta.persistence.*;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "users")
 public class User {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "user_id")
     private Long id;
 
     @Column(name = "student_id", unique = true)
-    private String studentId; // 학번
+    private String studentId;
 
-    private String name; // 이름
-
-    private String pin; // 고유 비밀번호 (PIN)
+    private String name;
+    private String pin;
 
     @Column(name = "point_balance")
-    private int pointBalance = 1000; // 가입 시 기본 1000포인트
+    private int pointBalance = 1000;
 
     @Column(name = "penalty_status")
     private boolean penaltyStatus;
 
+    @Column(unique = true)
+    private String referralCode;
+
+    private int stamps = 0;
+
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Coupon> rentalCoupons = new ArrayList<>();
+
+    // 👇 [신규 추가] 기프티콘 쿠폰함
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Gifticon> exchangedGifticons = new ArrayList<>();
+
     public User() {}
 
-    // Getter & Setter
+    // 기존 Getter & Setter
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getStudentId() { return studentId; }
@@ -39,7 +51,15 @@ public class User {
     public void setPointBalance(int pointBalance) { this.pointBalance = pointBalance; }
     public boolean isPenaltyStatus() { return penaltyStatus; }
     public void setPenaltyStatus(boolean penaltyStatus) { this.penaltyStatus = penaltyStatus; }
-
-    // 🚨 [추가] BookController에서 에러가 나지 않도록 연결해 주는 메서드
     public boolean getPenaltyStatus() { return penaltyStatus; }
+    public String getReferralCode() { return referralCode; }
+    public void setReferralCode(String referralCode) { this.referralCode = referralCode; }
+    public int getStamps() { return stamps; }
+    public void setStamps(int stamps) { this.stamps = stamps; }
+    public List<Coupon> getRentalCoupons() { return rentalCoupons; }
+    public void setRentalCoupons(List<Coupon> rentalCoupons) { this.rentalCoupons = rentalCoupons; }
+
+    // 👇 [신규 추가] 기프티콘 Getter & Setter
+    public List<Gifticon> getExchangedGifticons() { return exchangedGifticons; }
+    public void setExchangedGifticons(List<Gifticon> exchangedGifticons) { this.exchangedGifticons = exchangedGifticons; }
 }

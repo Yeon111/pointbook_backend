@@ -9,6 +9,10 @@ import java.util.Optional;
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByName(String name);
-    // 👇 학번으로 DB에서 유저를 찾아오는 메서드 추가
+
+    // 👇 학번으로 DB에서 유저를 찾아오는 메서드 (기존)
     Optional<User> findByStudentId(String studentId);
+
+    // 👇 [신규 추가] 추천 코드로 유저를 찾아오는 메서드
+    Optional<User> findByReferralCode(String referralCode);
 }

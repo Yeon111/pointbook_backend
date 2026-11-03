@@ -1,6 +1,7 @@
 package com.example.point_book_backend.service;
 
 import com.example.point_book_backend.domain.Book;
+import com.example.point_book_backend.domain.Coupon; // 🚨 [추가] 쿠폰 엔티티 임포트
 import com.example.point_book_backend.domain.Rental;
 import com.example.point_book_backend.domain.User;
 import com.example.point_book_backend.repository.BookRepository;
@@ -60,15 +61,45 @@ public class RentalService {
             rental.setCabinetSlot(1);
         }
 
-        int rentalFee = (totalPoints != null) ? totalPoints : 100;
-        if (user.getPointBalance() < rentalFee) {
-            throw new IllegalStateException("포인트가 부족하여 대여할 수 없습니다.");
-        }
-        user.setPointBalance(user.getPointBalance() - rentalFee);
+        // 👇👇👇 [핵심 수정 부분] 결제 수단 확인 (쿠폰 vs 포인트) 👇👇👇
+        if ("쿠폰".equals(paymentMethod)) {
+            // 쿠폰 결제일 경우
+            if (user.getRentalCoupons() == null || user.getRentalCoupons().isEmpty()) {
+                throw new IllegalStateException("사용 가능한 무료 대여 쿠폰이 없습니다.");
+            }
+            // 보유 중인 쿠폰 중 제일 오래된 것(0번째 인덱스) 1장 차감
+            user.getRentalCoupons().remove(0);
+        } else {
+            // 기존 로직: 포인트 결제일 경우
+            int rentalFee = (totalPoints != null) ? totalPoints : 100;
+            if (user.getPointBalance() < rentalFee) {
+                throw new IllegalStateException("포인트가 부족하여 대여할 수 없습니다.");
+            }
+            user.setPointBalance(user.getPointBalance() - rentalFee);
 
-        if (user.getPointBalance() <= 0) {
-            user.setPenaltyStatus(true);
+            if (user.getPointBalance() <= 0) {
+                user.setPenaltyStatus(true);
+            }
         }
+
+        // 👇👇👇 [신규 추가 부분] 스탬프 적립 및 10개 달성 시 쿠폰 발급 👇👇👇
+        user.setStamps(user.getStamps() + 1); // 대여 1건당 스탬프 +1
+
+        if (user.getStamps() >= 10) {
+            user.setStamps(0); // 10개를 채웠으므로 다시 0으로 초기화
+
+            // 무료 대여 쿠폰 1장 새로 생성
+            Coupon newCoupon = new Coupon(
+                    "스탬프 10개 달성 무료 도서 대여 쿠폰",
+                    java.time.LocalDate.now().toString(),
+                    user
+            );
+            // 유저의 쿠폰함에 추가
+            user.getRentalCoupons().add(newCoupon);
+        }
+        // 👆👆👆 수정 완료 👆👆👆
+
+        // 변경된 유저 정보(포인트 차감/쿠폰 차감/스탬프/새 쿠폰 발급 내역) DB 저장
         userRepository.saveAndFlush(user);
 
         return rentalRepository.saveAndFlush(rental);
@@ -98,7 +129,7 @@ public class RentalService {
         }
     }
 
-    // 👇 [수정됨] Repository 변경에 맞춰 에러가 나지 않도록 최신 데이터 조회 방식으로 변경
+    // Repository 변경에 맞춰 에러가 나지 않도록 최신 데이터 조회 방식으로 변경
     @Transactional
     public void saveSequentialAuthCodes(Integer cabinetSlot, String auth_code_1, String auth_code_2) {
         Rental rental = rentalRepository.findTopByOrderByIdDesc()
@@ -108,7 +139,7 @@ public class RentalService {
         rental.setAuth_code_2(auth_code_2);
     }
 
-    // 🚀 [최종 수정됨] 1단계 검증: 키패드 번호로 직접 DB 조회 (과거 데이터 무시)
+    // 1단계 검증: 키패드 번호로 직접 DB 조회 (과거 데이터 무시)
     public boolean verifyStep1Code(Integer cabinetSlot, String inputCode) {
         String cleanInput = inputCode != null ? inputCode.trim() : "";
 
@@ -119,7 +150,7 @@ public class RentalService {
         return isMatch;
     }
 
-    // 🚀 [최종 수정됨] 2단계 검증: 키패드 번호로 직접 DB 조회 (과거 데이터 무시)
+    // 2단계 검증: 키패드 번호로 직접 DB 조회 (과거 데이터 무시)
     public boolean verifyStep2Code(Integer cabinetSlot, String inputCode) {
         String cleanInput = inputCode != null ? inputCode.trim() : "";
 
