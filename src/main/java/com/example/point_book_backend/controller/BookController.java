@@ -41,6 +41,11 @@ public class BookController {
         user.setStudentId(studentId);
         user.setName(name);
         user.setPin(pin);
+
+        // 🚨 [추가된 부분] 프론트엔드 요청: 가입 시 추천 코드(8자리) 무조건 생성 및 저장
+        String randomCode = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        user.setReferralCode(randomCode);
+
         userRepository.save(user);
 
         return ResponseEntity.ok(Map.of("success", true, "message", "회원가입 완료"));
