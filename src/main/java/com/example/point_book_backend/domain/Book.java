@@ -42,6 +42,13 @@ public class Book {
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime rentalDueDate;
 
+    // 🚨 [신규 추가] 보관/회수 시 사용할 1회용 랜덤 1, 2차 인증 코드 필드
+    @Column(name = "auth_code_1")
+    private String authCode1;
+
+    @Column(name = "auth_code_2")
+    private String authCode2;
+
     // 🚨 [2단계 추가] 프론트엔드가 요구하는 reports 배열 필드 (DB 1:N 관계 설정)
     @OneToMany(mappedBy = "book", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<Report> reports = new ArrayList<>();
@@ -49,32 +56,52 @@ public class Book {
     // --- Getter & Setter ---
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
+
     public String getAuthor() { return author; }
     public void setAuthor(String author) { this.author = author; }
+
     public String getPublisher() { return publisher; }
     public void setPublisher(String publisher) { this.publisher = publisher; }
+
     public String getCondition() { return condition; }
     public void setCondition(String condition) { this.condition = condition; }
+
     public String getStorageNo() { return storageNo; }
     public void setStorageNo(String storageNo) { this.storageNo = storageNo; }
+
     public String getLockerNo() { return lockerNo; }
     public void setLockerNo(String lockerNo) { this.lockerNo = lockerNo; }
+
     public Boolean getIsAvailable() { return isAvailable; }
     public void setIsAvailable(Boolean isAvailable) { this.isAvailable = isAvailable; }
+
     public String getOwner() { return owner; }
     public void setOwner(String owner) { this.owner = owner; }
+
     public String getOwnerPin() { return ownerPin; }
     public void setOwnerPin(String ownerPin) { this.ownerPin = ownerPin; }
+
     public String getBorrower() { return borrower; }
     public void setBorrower(String borrower) { this.borrower = borrower; }
+
     public String getImage() { return image; }
     public void setImage(String image) { this.image = image; }
+
     public Long getRentalTimeLeft() { return rentalTimeLeft; }
     public void setRentalTimeLeft(Long rentalTimeLeft) { this.rentalTimeLeft = rentalTimeLeft; }
+
     public LocalDateTime getRentalDueDate() { return rentalDueDate; }
     public void setRentalDueDate(LocalDateTime rentalDueDate) { this.rentalDueDate = rentalDueDate; }
+
+    // 🚨 [신규 추가] 랜덤 코드 Getter & Setter
+    public String getAuthCode1() { return authCode1; }
+    public void setAuthCode1(String authCode1) { this.authCode1 = authCode1; }
+
+    public String getAuthCode2() { return authCode2; }
+    public void setAuthCode2(String authCode2) { this.authCode2 = authCode2; }
 
     // 🚨 [2단계 추가] reports Getter & Setter
     public List<Report> getReports() { return reports; }

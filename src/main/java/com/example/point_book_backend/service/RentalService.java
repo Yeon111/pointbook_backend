@@ -1,7 +1,7 @@
 package com.example.point_book_backend.service;
 
 import com.example.point_book_backend.domain.Book;
-import com.example.point_book_backend.domain.Coupon; // 🚨 [추가] 쿠폰 엔티티 임포트
+import com.example.point_book_backend.domain.Coupon;
 import com.example.point_book_backend.domain.Rental;
 import com.example.point_book_backend.domain.User;
 import com.example.point_book_backend.repository.BookRepository;
@@ -52,7 +52,7 @@ public class RentalService {
         rental.setDueTime(dueTime);
         rental.setStatus("대여중");
 
-        // 프론트엔드가 보낸 1단계, 2단계 인증번호와 수납장 번호 매핑
+        // 프론트엔드가 보낸 1단계, 2단계 인증번호와 수납장 번 매핑
         rental.setAuth_code_1(auth_code_1);
         rental.setAuth_code_2(auth_code_2);
 
@@ -139,24 +139,54 @@ public class RentalService {
         rental.setAuth_code_2(auth_code_2);
     }
 
-    // 1단계 검증: 키패드 번호로 직접 DB 조회 (과거 데이터 무시)
+    // ==========================================
+    // 🚨 [최종 수정] 1단계 검증: 대여/반납(Rental) + 보관/회수(Book) 완벽 통합
+    // ==========================================
     public boolean verifyStep1Code(Integer cabinetSlot, String inputCode) {
         String cleanInput = inputCode != null ? inputCode.trim() : "";
 
-        // 하드웨어가 보낸 번호가 DB에 존재하는지 직접 족집게처럼 찾아냄
+        // 1. 대여/반납 상황: 렌탈 테이블에서 일회용 인증코드 검사
         boolean isMatch = rentalRepository.findValidRentalForStep1(cabinetSlot, cleanInput).isPresent();
 
-        System.out.println("🚨 [1단계 인증] 수납장: " + cabinetSlot + ", 하드웨어가 쏜 번호: [" + cleanInput + "] -> 결과: " + isMatch);
+        // 2. 보관/회수 상황: 렌탈 테이블에 없다면 Book 테이블의 보관용 랜덤 코드 검사!
+        if (!isMatch) {
+            List<Book> books = bookRepository.findAll();
+            for (Book book : books) {
+                // Book 테이블에 저장된 authCode1이 키패드 입력값과 일치하는지 확인
+                if (book.getAuthCode1() != null && book.getAuthCode1().equals(cleanInput)) {
+                    isMatch = true;
+                    System.out.println("💡 [보관/회수 1차 인증 성공] Book 테이블 랜덤 코드 일치!");
+                    break;
+                }
+            }
+        }
+
+        System.out.println("🚨 [1단계 인증] 수납장: " + cabinetSlot + ", 하드웨어가 쏜 번호: [" + cleanInput + "] -> 최종 결과: " + isMatch);
         return isMatch;
     }
 
-    // 2단계 검증: 키패드 번호로 직접 DB 조회 (과거 데이터 무시)
+    // ==========================================
+    // 🚨 [최종 수정] 2단계 검증: 대여/반납(Rental) + 보관/회수(Book) 완벽 통합
+    // ==========================================
     public boolean verifyStep2Code(Integer cabinetSlot, String inputCode) {
         String cleanInput = inputCode != null ? inputCode.trim() : "";
 
+        // 1. 대여/반납 상황
         boolean isMatch = rentalRepository.findValidRentalForStep2(cabinetSlot, cleanInput).isPresent();
 
-        System.out.println("🚨 [2단계 인증] 수납장: " + cabinetSlot + ", 하드웨어가 쏜 번호: [" + cleanInput + "] -> 결과: " + isMatch);
+        // 2. 보관/회수 상황
+        if (!isMatch) {
+            List<Book> books = bookRepository.findAll();
+            for (Book book : books) {
+                if (book.getAuthCode2() != null && book.getAuthCode2().equals(cleanInput)) {
+                    isMatch = true;
+                    System.out.println("💡 [보관/회수 2차 인증 성공] Book 테이블 랜덤 코드 일치!");
+                    break;
+                }
+            }
+        }
+
+        System.out.println("🚨 [2단계 인증] 수납장: " + cabinetSlot + ", 하드웨어가 쏜 번호: [" + cleanInput + "] -> 최종 결과: " + isMatch);
         return isMatch;
     }
 }

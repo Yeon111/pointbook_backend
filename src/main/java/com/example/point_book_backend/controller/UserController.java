@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api")
@@ -24,8 +23,8 @@ public class UserController {
 
     @PostMapping("/users")
     public User createUser(@RequestBody User user) {
-        String randomCode = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-        user.setReferralCode(randomCode);
+        // 🚨 [수정된 부분] UUID 지우고 학번 기반 생성 "USER_학번" 고정
+        user.setReferralCode("USER_" + user.getStudentId());
         return userRepository.save(user);
     }
 
@@ -52,7 +51,7 @@ public class UserController {
             userRepository.save(me);
             userRepository.save(friend);
 
-            return ResponseEntity.ok().build();
+            return ResponseEntity.ok(Map.of("success", true, "message", "추천 코드가 등록되었습니다."));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         } catch (Exception e) {
@@ -71,6 +70,12 @@ public class UserController {
 
             if (user.getPin() != null && !user.getPin().equals(pin)) {
                 throw new IllegalArgumentException("비밀번호가 일치하지 않습니다.");
+            }
+
+            // 🚨 [수정된 부분] 코드가 비어있거나 기존 방식(난수 등)으로 잘못 저장된 유저까지 싹 다 "USER_학번"으로 강제 교정
+            if (user.getReferralCode() == null || !user.getReferralCode().equals("USER_" + user.getStudentId())) {
+                user.setReferralCode("USER_" + user.getStudentId());
+                userRepository.save(user); // DB에 'USER_학번' 형태로 저장 고정!
             }
 
             Map<String, Object> response = new HashMap<>();

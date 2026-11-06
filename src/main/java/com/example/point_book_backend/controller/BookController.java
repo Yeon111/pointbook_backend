@@ -13,10 +13,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.UUID;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api")
@@ -42,9 +42,8 @@ public class BookController {
         user.setName(name);
         user.setPin(pin);
 
-        // 🚨 [추가된 부분] 프론트엔드 요청: 가입 시 추천 코드(8자리) 무조건 생성 및 저장
-        String randomCode = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-        user.setReferralCode(randomCode);
+        // 🚨 [수정된 부분] UUID 난수 대신 "USER_학번"으로 고정 생성
+        user.setReferralCode("USER_" + studentId);
 
         userRepository.save(user);
 
@@ -59,7 +58,7 @@ public class BookController {
     }
 
     // ==========================================
-    // 🚨 [최종 수정] 도서 등록 시 다중 사진 업로드(FormData) 완벽 대응
+    // 🚨 [최종 수정] 도서 등록 시 다중 사진 업로드(FormData) 완벽 대응 + 랜덤 코드 저장
     // ==========================================
     @PostMapping("/books")
     public ResponseEntity<?> createBook(
@@ -69,6 +68,9 @@ public class BookController {
             @RequestParam(value = "condition", required = false) String condition,
             @RequestParam(value = "storageNo", required = false) String storageNo,
             @RequestParam(value = "owner", required = false) String owner,
+            // 👇 [핵심 추가] 프론트엔드가 보내는 인증코드 1, 2를 받도록 파라미터 추가!
+            @RequestParam(value = "auth_code_1", required = false) String authCode1,
+            @RequestParam(value = "auth_code_2", required = false) String authCode2,
             @RequestParam(value = "images", required = false) List<MultipartFile> images) {
 
         try {
@@ -104,6 +106,10 @@ public class BookController {
             // 기본 상태 세팅
             book.setIsAvailable(true);
             book.setBorrower("");
+
+            // 👇 [핵심 추가] 받아온 랜덤 코드를 Book DB 필드에 예쁘게 저장!
+            book.setAuthCode1(authCode1);
+            book.setAuthCode2(authCode2);
 
             // 3. 다중 이미지 URL을 JSON 배열 형태의 문자열로 변환하여 저장
             String jsonImageArray = imageUrls.isEmpty() ? null : "[\"" + String.join("\",\"", imageUrls) + "\"]";
