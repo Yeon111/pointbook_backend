@@ -4,7 +4,6 @@ import jakarta.persistence.*;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonFormat; // 날짜 포맷용 추가
 import java.time.LocalDateTime; // 날짜 타입 추가
-// 🚨 [2단계 추가] List와 ArrayList를 사용하기 위한 import
 import java.util.ArrayList;
 import java.util.List;
 
@@ -42,14 +41,15 @@ public class Book {
     @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime rentalDueDate;
 
-    // 🚨 [신규 추가] 보관/회수 시 사용할 1회용 랜덤 1, 2차 인증 코드 필드
+    // 💡 1단계 인증 코드 필드만 유지 (2단계 제거)
     @Column(name = "auth_code_1")
     private String authCode1;
 
-    @Column(name = "auth_code_2")
-    private String authCode2;
+    // 💡 앱-하드웨어 API 분리를 위한 1단계 인증 통과 상태 필드
+    @Column(name = "step1_passed")
+    private Boolean step1Passed = false;
 
-    // 🚨 [2단계 추가] 프론트엔드가 요구하는 reports 배열 필드 (DB 1:N 관계 설정)
+    // 프론트엔드가 요구하는 reports 배열 필드 (DB 1:N 관계 설정)
     @OneToMany(mappedBy = "book", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<Report> reports = new ArrayList<>();
 
@@ -96,14 +96,14 @@ public class Book {
     public LocalDateTime getRentalDueDate() { return rentalDueDate; }
     public void setRentalDueDate(LocalDateTime rentalDueDate) { this.rentalDueDate = rentalDueDate; }
 
-    // 🚨 [신규 추가] 랜덤 코드 Getter & Setter
+    // 💡 1단계 인증 코드 Getter & Setter만 유지
     public String getAuthCode1() { return authCode1; }
     public void setAuthCode1(String authCode1) { this.authCode1 = authCode1; }
 
-    public String getAuthCode2() { return authCode2; }
-    public void setAuthCode2(String authCode2) { this.authCode2 = authCode2; }
+    public Boolean getStep1Passed() { return step1Passed; }
+    public void setStep1Passed(Boolean step1Passed) { this.step1Passed = step1Passed; }
 
-    // 🚨 [2단계 추가] reports Getter & Setter
+    // reports Getter & Setter
     public List<Report> getReports() { return reports; }
     public void setReports(List<Report> reports) { this.reports = reports; }
 }

@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @RestController
@@ -42,7 +43,6 @@ public class BookController {
         user.setName(name);
         user.setPin(pin);
 
-        // 🚨 [수정된 부분] UUID 난수 대신 "USER_학번"으로 고정 생성
         user.setReferralCode("USER_" + studentId);
 
         userRepository.save(user);
@@ -50,15 +50,13 @@ public class BookController {
         return ResponseEntity.ok(Map.of("success", true, "message", "회원가입 완료"));
     }
 
-    // 💡 참고: 로그인 API는 이미 UserController에 구현되어 있으므로, 충돌 방지를 위해 여기서 완전히 제거했습니다!
-
     @GetMapping("/books")
     public List<Book> getBooks() {
         return bookRepository.findAllByOrderByIdDesc();
     }
 
     // ==========================================
-    // 🚨 [최종 수정] 도서 등록 시 다중 사진 업로드(FormData) 완벽 대응 + 랜덤 코드 저장
+    // 💡 [수정 완료] 도서 등록 시 1단계 인증 코드만 받도록 변경 (2단계 제거)
     // ==========================================
     @PostMapping("/books")
     public ResponseEntity<?> createBook(
@@ -68,33 +66,26 @@ public class BookController {
             @RequestParam(value = "condition", required = false) String condition,
             @RequestParam(value = "storageNo", required = false) String storageNo,
             @RequestParam(value = "owner", required = false) String owner,
-            // 👇 [핵심 추가] 프론트엔드가 보내는 인증코드 1, 2를 받도록 파라미터 추가!
+            // 👇 1단계 인증코드만 파라미터로 받음 (2단계 제거)
             @RequestParam(value = "auth_code_1", required = false) String authCode1,
-            @RequestParam(value = "auth_code_2", required = false) String authCode2,
             @RequestParam(value = "images", required = false) List<MultipartFile> images) {
 
         try {
             List<String> imageUrls = new ArrayList<>();
 
-            // 1. 프론트에서 실제 파일(사진)이 넘어왔다면 EC2 서버 폴더에 물리적으로 저장
             if (images != null && !images.isEmpty()) {
                 for (MultipartFile file : images) {
                     if (file.isEmpty()) continue;
 
-                    // 파일 이름이 겹치지 않게 고유 식별자(UUID) 생성
                     String uuidFilename = UUID.randomUUID().toString() + "_" + file.getOriginalFilename();
-
-                    // AWS EC2 서버의 /home/ubuntu/uploads/ 폴더에 저장
                     File dest = new File("/home/ubuntu/uploads/" + uuidFilename);
                     file.transferTo(dest);
 
-                    // 누구나 볼 수 있는 공용 URL 생성 후 리스트에 담기
                     String publicUrl = "/uploads/" + uuidFilename;
                     imageUrls.add(publicUrl);
                 }
             }
 
-            // 2. 도서 엔티티 생성 및 정보 세팅
             Book book = new Book();
             book.setTitle(title);
             book.setAuthor(author);
@@ -103,15 +94,13 @@ public class BookController {
             book.setStorageNo(storageNo);
             book.setOwner(owner);
 
-            // 기본 상태 세팅
             book.setIsAvailable(true);
             book.setBorrower("");
 
-            // 👇 [핵심 추가] 받아온 랜덤 코드를 Book DB 필드에 예쁘게 저장!
+            // 👇 1단계 인증 코드만 Book DB 필드에 저장
             book.setAuthCode1(authCode1);
-            book.setAuthCode2(authCode2);
+            book.setStep1Passed(false); // 초기 상태 false 설정
 
-            // 3. 다중 이미지 URL을 JSON 배열 형태의 문자열로 변환하여 저장
             String jsonImageArray = imageUrls.isEmpty() ? null : "[\"" + String.join("\",\"", imageUrls) + "\"]";
             book.setImage(jsonImageArray);
 
@@ -126,8 +115,38 @@ public class BookController {
     }
 
     // ==========================================
-    // 🚨 프론트엔드 다중 사진 업로드(FormData) 완벽 대응 (신고 기능)
+    // 📱 [앱 전용] 보관/회수 하드웨어 인증 통과 여부 확인 API (새로 추가됨)
     // ==========================================
+    @PostMapping("/app/verify-storage-step1")
+    public ResponseEntity<?> appVerifyStorageStep1(@RequestBody Map<String, Object> request) {
+        Map<String, Object> res = new HashMap<>();
+        try {
+            // 1. 앱에서 보낸 사물함 번호 받기 (Book 엔티티는 String 타입인 storageNo를 쓰므로 String으로 변환)
+            String storageNo = request.get("cabinetSlot") != null ? request.get("cabinetSlot").toString() : "1";
+
+            // 2. BookRepository를 뒤져서 해당 사물함의 가장 최근 도서를 가져옴
+            Optional<Book> bookOpt = bookRepository.findTopByStorageNoOrderByIdDesc(storageNo);
+
+            // 3. 책이 존재하고, 그 책의 step1Passed 값이 true인지 확인
+            boolean isPassed = false;
+            if (bookOpt.isPresent()) {
+                Book book = bookOpt.get();
+                if (book.getStep1Passed() != null && book.getStep1Passed()) {
+                    isPassed = true;
+                }
+            }
+
+            // 4. 앱(규빈이)에게 결과 전달
+            res.put("success", isPassed);
+            return ResponseEntity.ok(res);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            res.put("success", false);
+            return ResponseEntity.ok(res);
+        }
+    }
+
     @PostMapping("/reports")
     public ResponseEntity<?> addReport(
             @RequestParam("bookId") Long bookId,
@@ -142,19 +161,14 @@ public class BookController {
 
             List<String> imageUrls = new ArrayList<>();
 
-            // 1. 프론트에서 실제 파일이 넘어왔다면 EC2 서버 폴더에 물리적으로 저장
             if (images != null && !images.isEmpty()) {
                 for (MultipartFile file : images) {
                     if (file.isEmpty()) continue;
 
-                    // 파일 이름이 겹치지 않게 고유 식별자(UUID) 생성
                     String uuidFilename = UUID.randomUUID().toString() + "_" + file.getOriginalFilename();
-
-                    // AWS EC2 서버의 /home/ubuntu/uploads/ 폴더에 저장
                     File dest = new File("/home/ubuntu/uploads/" + uuidFilename);
                     file.transferTo(dest);
 
-                    // 누구나 볼 수 있는 공용 URL 생성 후 리스트에 담기
                     String publicUrl = "/uploads/" + uuidFilename;
                     imageUrls.add(publicUrl);
                 }
@@ -164,7 +178,6 @@ public class BookController {
             report.setContent(detail != null ? detail : "내용 없음");
             report.setReporter(reporter != null ? reporter : "익명");
 
-            // 프론트엔드의 JSON.parse() 에러를 방지하기 위해 완벽한 문자열 배열 ["url1", "url2"] 형태로 가공하여 저장
             String jsonImageArray = imageUrls.isEmpty() ? null : "[\"" + String.join("\",\"", imageUrls) + "\"]";
             report.setImage(jsonImageArray);
 

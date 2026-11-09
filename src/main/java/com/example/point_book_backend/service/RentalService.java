@@ -22,7 +22,7 @@ public class RentalService {
     @Autowired private UserRepository userRepository;
 
     @Transactional
-    public Rental rentBook(String userName, Long bookId, String paymentMethod, Integer rentalHours, Integer totalPoints, String auth_code_1, String auth_code_2) {
+    public Rental rentBook(String userName, Long bookId, String paymentMethod, Integer rentalHours, Integer totalPoints, String auth_code_1) {
 
         User user = userRepository.findByName(userName)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 사용자입니다: " + userName));
@@ -43,7 +43,7 @@ public class RentalService {
         book.setRentalDueDate(dueTime);
         bookRepository.saveAndFlush(book);
 
-        // 대여 기록 생성 및 인증번호 세팅
+        // 대여 기록 생성 및 인증번호 세팅 (1단계만 저장, step1Passed 초기값 false)
         Rental rental = new Rental();
         rental.setUserId(user.getId());
         rental.setBookId(bookId);
@@ -51,26 +51,21 @@ public class RentalService {
         rental.setStartTime(LocalDateTime.now());
         rental.setDueTime(dueTime);
         rental.setStatus("대여중");
-
-        // 프론트엔드가 보낸 1단계, 2단계 인증번호와 수납장 번 매핑
         rental.setAuth_code_1(auth_code_1);
-        rental.setAuth_code_2(auth_code_2);
+        rental.setStep1Passed(false);
 
         // 책에 지정된 보관함 번호가 있다면 rental의 cabinetSlot에도 자동 반영
         if (book.getStorageNo() != null) {
             rental.setCabinetSlot(1);
         }
 
-        // 👇👇👇 [핵심 수정 부분] 결제 수단 확인 (쿠폰 vs 포인트) 👇👇👇
+        // 결제 수단 확인 (쿠폰 vs 포인트)
         if ("쿠폰".equals(paymentMethod)) {
-            // 쿠폰 결제일 경우
             if (user.getRentalCoupons() == null || user.getRentalCoupons().isEmpty()) {
                 throw new IllegalStateException("사용 가능한 무료 대여 쿠폰이 없습니다.");
             }
-            // 보유 중인 쿠폰 중 제일 오래된 것(0번째 인덱스) 1장 차감
             user.getRentalCoupons().remove(0);
         } else {
-            // 기존 로직: 포인트 결제일 경우
             int rentalFee = (totalPoints != null) ? totalPoints : 100;
             if (user.getPointBalance() < rentalFee) {
                 throw new IllegalStateException("포인트가 부족하여 대여할 수 없습니다.");
@@ -82,32 +77,25 @@ public class RentalService {
             }
         }
 
-        // 👇👇👇 [신규 추가 부분] 스탬프 적립 및 10개 달성 시 쿠폰 발급 👇👇👇
-        user.setStamps(user.getStamps() + 1); // 대여 1건당 스탬프 +1
+        // 스탬프 적립 및 10개 달성 시 쿠폰 발급
+        user.setStamps(user.getStamps() + 1);
 
         if (user.getStamps() >= 10) {
-            user.setStamps(0); // 10개를 채웠으므로 다시 0으로 초기화
-
-            // 무료 대여 쿠폰 1장 새로 생성
+            user.setStamps(0);
             Coupon newCoupon = new Coupon(
                     "스탬프 10개 달성 무료 도서 대여 쿠폰",
                     java.time.LocalDate.now().toString(),
                     user
             );
-            // 유저의 쿠폰함에 추가
             user.getRentalCoupons().add(newCoupon);
         }
-        // 👆👆👆 수정 완료 👆👆👆
 
-        // 변경된 유저 정보(포인트 차감/쿠폰 차감/스탬프/새 쿠폰 발급 내역) DB 저장
         userRepository.saveAndFlush(user);
-
         return rentalRepository.saveAndFlush(rental);
     }
 
     @Transactional
     public void returnBook(Long bookId) {
-        // 1. 도서 상태를 다시 '대여 가능'으로 복구
         Book book = bookRepository.findById(bookId)
                 .orElseThrow(() -> new IllegalArgumentException("도서 없음"));
 
@@ -117,76 +105,100 @@ public class RentalService {
         book.setRentalDueDate(null);
         bookRepository.saveAndFlush(book);
 
-        // 2. Rental(대여) 테이블에서 '대여중'인 기록을 찾아 '반납/회수완료' 처리 및 시간 기록
         List<Rental> rentals = rentalRepository.findAll();
         for (Rental r : rentals) {
             if (r.getBookId().equals(bookId) && "대여중".equals(r.getStatus())) {
-                r.setStatus("반납/회수완료"); // 상태 변경
-                r.setReturnTime(LocalDateTime.now()); // 현재 시간을 반납 시간으로 저장
+                r.setStatus("반납/회수완료");
+                r.setReturnTime(LocalDateTime.now());
                 rentalRepository.saveAndFlush(r);
                 break;
             }
         }
     }
 
-    // Repository 변경에 맞춰 에러가 나지 않도록 최신 데이터 조회 방식으로 변경
+    // 💡 1단계 인증 번호만 저장하도록 수정 (2단계 제거)
     @Transactional
-    public void saveSequentialAuthCodes(Integer cabinetSlot, String auth_code_1, String auth_code_2) {
+    public void saveSequentialAuthCodes(Integer cabinetSlot, String auth_code_1) {
         Rental rental = rentalRepository.findTopByOrderByIdDesc()
                 .orElseThrow(() -> new IllegalArgumentException("활성화된 대여 내역이 없습니다."));
         rental.setCabinetSlot(cabinetSlot);
         rental.setAuth_code_1(auth_code_1);
-        rental.setAuth_code_2(auth_code_2);
     }
 
     // ==========================================
-    // 🚨 [최종 수정] 1단계 검증: 대여/반납(Rental) + 보관/회수(Book) 완벽 통합
+    // 💡 [신규] 대여/반납 전용 1단계 검증 (Rental 테이블만 검사 + step1Passed = true 기록)
     // ==========================================
-    public boolean verifyStep1Code(Integer cabinetSlot, String inputCode) {
+    @Transactional
+    public boolean verifyRentalStep1(Integer cabinetSlot, String inputCode) {
         String cleanInput = inputCode != null ? inputCode.trim() : "";
+        boolean isMatch = false;
 
-        // 1. 대여/반납 상황: 렌탈 테이블에서 일회용 인증코드 검사
-        boolean isMatch = rentalRepository.findValidRentalForStep1(cabinetSlot, cleanInput).isPresent();
+        List<Rental> rentals = rentalRepository.findAll();
+        for (Rental r : rentals) {
+            if (r.getCabinetSlot() != null && r.getCabinetSlot().equals(cabinetSlot)
+                    && "대여중".equals(r.getStatus())
+                    && cleanInput.equals(r.getAuth_code_1())) {
 
-        // 2. 보관/회수 상황: 렌탈 테이블에 없다면 Book 테이블의 보관용 랜덤 코드 검사!
-        if (!isMatch) {
+                r.setStep1Passed(true); // 통과 상태 기록
+                rentalRepository.saveAndFlush(r);
+                isMatch = true;
+                break;
+            }
+        }
+
+        System.out.println("🚨 [대여 1단계 검증] 수납장: " + cabinetSlot + ", 입력번호: [" + cleanInput + "] -> 결과: " + isMatch);
+        return isMatch;
+    }
+
+    // ==========================================
+    // 💡 [신규] 보관/회수 전용 1단계 검증 (Book 테이블만 검사 + step1Passed = true 기록)
+    // ==========================================
+    @Transactional
+    public boolean verifyStorageStep1(Integer cabinetSlot, String inputCode) {
+        String cleanInput = inputCode != null ? inputCode.trim() : "";
+        boolean isMatch = false;
+
+        List<Book> books = bookRepository.findAll();
+        for (Book book : books) {
+            if (book.getAuthCode1() != null && book.getAuthCode1().equals(cleanInput)) {
+                book.setStep1Passed(true); // 통과 상태 기록
+                bookRepository.saveAndFlush(book);
+                isMatch = true;
+                break;
+            }
+        }
+
+        System.out.println("🚨 [보관 1단계 검증] 수납장: " + cabinetSlot + ", 입력번호: [" + cleanInput + "] -> 결과: " + isMatch);
+        return isMatch;
+    }
+
+    // ==========================================
+    // 💡 [신규] 앱 전용: 해당 수납장이 1단계 통과 상태인지 확인
+    // ==========================================
+    public boolean appCheckStep1Status(Integer cabinetSlot) {
+        boolean isPassed = false;
+
+        // 1. Rental 테이블 확인
+        List<Rental> rentals = rentalRepository.findAll();
+        for (Rental r : rentals) {
+            if (r.getCabinetSlot() != null && r.getCabinetSlot().equals(cabinetSlot)
+                    && Boolean.TRUE.equals(r.getStep1Passed())) {
+                isPassed = true;
+                break;
+            }
+        }
+
+        // 2. Rental에 없으면 Book 테이블 확인
+        if (!isPassed) {
             List<Book> books = bookRepository.findAll();
-            for (Book book : books) {
-                // Book 테이블에 저장된 authCode1이 키패드 입력값과 일치하는지 확인
-                if (book.getAuthCode1() != null && book.getAuthCode1().equals(cleanInput)) {
-                    isMatch = true;
-                    System.out.println("💡 [보관/회수 1차 인증 성공] Book 테이블 랜덤 코드 일치!");
+            for (Book b : books) {
+                if (Boolean.TRUE.equals(b.getStep1Passed())) {
+                    isPassed = true;
                     break;
                 }
             }
         }
 
-        System.out.println("🚨 [1단계 인증] 수납장: " + cabinetSlot + ", 하드웨어가 쏜 번호: [" + cleanInput + "] -> 최종 결과: " + isMatch);
-        return isMatch;
-    }
-
-    // ==========================================
-    // 🚨 [최종 수정] 2단계 검증: 대여/반납(Rental) + 보관/회수(Book) 완벽 통합
-    // ==========================================
-    public boolean verifyStep2Code(Integer cabinetSlot, String inputCode) {
-        String cleanInput = inputCode != null ? inputCode.trim() : "";
-
-        // 1. 대여/반납 상황
-        boolean isMatch = rentalRepository.findValidRentalForStep2(cabinetSlot, cleanInput).isPresent();
-
-        // 2. 보관/회수 상황
-        if (!isMatch) {
-            List<Book> books = bookRepository.findAll();
-            for (Book book : books) {
-                if (book.getAuthCode2() != null && book.getAuthCode2().equals(cleanInput)) {
-                    isMatch = true;
-                    System.out.println("💡 [보관/회수 2차 인증 성공] Book 테이블 랜덤 코드 일치!");
-                    break;
-                }
-            }
-        }
-
-        System.out.println("🚨 [2단계 인증] 수납장: " + cabinetSlot + ", 하드웨어가 쏜 번호: [" + cleanInput + "] -> 최종 결과: " + isMatch);
-        return isMatch;
+        return isPassed;
     }
 }

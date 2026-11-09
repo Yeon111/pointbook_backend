@@ -32,10 +32,10 @@ public class RentalController {
             Integer rentalHours = request.get("rentalHours") != null ? Integer.valueOf(request.get("rentalHours").toString()) : 24;
             Integer totalPoints = request.get("totalPoints") != null ? Integer.valueOf(request.get("totalPoints").toString()) : 100;
 
+            // 💡 1단계 인증 번호만 받도록 수정 (2단계 제거)
             String auth_code_1 = request.get("auth_code_1") != null ? request.get("auth_code_1").toString() : null;
-            String auth_code_2 = request.get("auth_code_2") != null ? request.get("auth_code_2").toString() : null;
 
-            Rental rental = rentalService.rentBook(userNameStr, bookId, paymentMethod, rentalHours, totalPoints, auth_code_1, auth_code_2);
+            Rental rental = rentalService.rentBook(userNameStr, bookId, paymentMethod, rentalHours, totalPoints, auth_code_1);
 
             res.put("success", true);
             res.put("message", "대여 성공");
@@ -70,10 +70,10 @@ public class RentalController {
         Map<String, Object> res = new HashMap<>();
         try {
             Integer cabinetSlot = Integer.valueOf(request.get("cabinetSlot").toString());
+            // 💡 1단계 인증 번호만 저장하도록 수정 (2단계 제거)
             String auth_code_1 = request.get("auth_code_1").toString();
-            String auth_code_2 = request.get("auth_code_2").toString();
 
-            rentalService.saveSequentialAuthCodes(cabinetSlot, auth_code_1, auth_code_2);
+            rentalService.saveSequentialAuthCodes(cabinetSlot, auth_code_1);
 
             res.put("success", true);
             res.put("message", "인증번호 저장 완료");
@@ -85,15 +85,18 @@ public class RentalController {
         }
     }
 
-    @PostMapping("/verify-step1")
-    public ResponseEntity<?> verifyStep1(@RequestBody Map<String, Object> request) {
-        Map<String, Boolean> res = new HashMap<>();
+    /**
+     * 1-1. [하드웨어용] 대여/반납 1단계 인증 요청 API
+     */
+    @PostMapping("/hardware/verify-rental-step1")
+    public ResponseEntity<?> hardwareVerifyRental(@RequestBody Map<String, Object> request) {
+        Map<String, Object> res = new HashMap<>();
         try {
             Integer cabinetSlot = request.get("cabinetSlot") != null ? Integer.valueOf(request.get("cabinetSlot").toString()) : 1;
             String inputCode = request.get("authCode") != null ? request.get("authCode").toString() :
                     (request.get("auth_code_1") != null ? request.get("auth_code_1").toString() : "");
 
-            boolean isMatch = rentalService.verifyStep1Code(cabinetSlot, inputCode);
+            boolean isMatch = rentalService.verifyRentalStep1(cabinetSlot, inputCode);
             res.put("open", isMatch);
             return ResponseEntity.ok(res);
         } catch (Exception e) {
@@ -102,19 +105,40 @@ public class RentalController {
         }
     }
 
-    @PostMapping("/verify-step2")
-    public ResponseEntity<?> verifyStep2(@RequestBody Map<String, Object> request) {
-        Map<String, Boolean> res = new HashMap<>();
+    /**
+     * 1-2. [하드웨어용] 보관/회수 1단계 인증 요청 API
+     */
+    @PostMapping("/hardware/verify-storage-step1")
+    public ResponseEntity<?> hardwareVerifyStorage(@RequestBody Map<String, Object> request) {
+        Map<String, Object> res = new HashMap<>();
         try {
             Integer cabinetSlot = request.get("cabinetSlot") != null ? Integer.valueOf(request.get("cabinetSlot").toString()) : 1;
             String inputCode = request.get("authCode") != null ? request.get("authCode").toString() :
-                    (request.get("auth_code_2") != null ? request.get("auth_code_2").toString() : "");
+                    (request.get("auth_code_1") != null ? request.get("auth_code_1").toString() : "");
 
-            boolean isMatch = rentalService.verifyStep2Code(cabinetSlot, inputCode);
+            boolean isMatch = rentalService.verifyStorageStep1(cabinetSlot, inputCode);
             res.put("open", isMatch);
             return ResponseEntity.ok(res);
         } catch (Exception e) {
             res.put("open", false);
+            return ResponseEntity.ok(res);
+        }
+    }
+
+    /**
+     * 2. [앱 전용] 하드웨어가 인증을 통과했는지 확인하는 API
+     */
+    @PostMapping("/app/verify-step1")
+    public ResponseEntity<?> appVerifyStep1(@RequestBody Map<String, Object> request) {
+        Map<String, Object> res = new HashMap<>();
+        try {
+            Integer cabinetSlot = request.get("cabinetSlot") != null ? Integer.valueOf(request.get("cabinetSlot").toString()) : 1;
+
+            boolean isPassed = rentalService.appCheckStep1Status(cabinetSlot);
+            res.put("success", isPassed);
+            return ResponseEntity.ok(res);
+        } catch (Exception e) {
+            res.put("success", false);
             return ResponseEntity.ok(res);
         }
     }
