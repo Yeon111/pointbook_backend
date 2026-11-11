@@ -55,9 +55,6 @@ public class BookController {
         return bookRepository.findAllByOrderByIdDesc();
     }
 
-    // ==========================================
-    // 💡 [수정 완료] 도서 등록 시 1단계 인증 코드만 받도록 변경 (2단계 제거)
-    // ==========================================
     @PostMapping("/books")
     public ResponseEntity<?> createBook(
             @RequestParam("title") String title,
@@ -65,7 +62,9 @@ public class BookController {
             @RequestParam(value = "publisher", required = false) String publisher,
             @RequestParam(value = "condition", required = false) String condition,
             @RequestParam(value = "storageNo", required = false) String storageNo,
+            @RequestParam(value = "lockerNo", required = false) String lockerNo,     // 👈 [추가됨] 구역 정보 수신
             @RequestParam(value = "owner", required = false) String owner,
+            @RequestParam(value = "ownerPin", required = false) String ownerPin,     // 👈 [추가됨] 소유자 핀번호 수신
             @RequestParam(value = "auth_code_1", required = false) String authCode1,
             @RequestParam(value = "images", required = false) List<MultipartFile> images) {
 
@@ -91,9 +90,12 @@ public class BookController {
             book.setPublisher(publisher);
             book.setCondition(condition);
             book.setStorageNo(storageNo);
+            book.setLockerNo(lockerNo);       // 👈 [추가됨] DB locker_no에 매핑
             book.setOwner(owner);
+            book.setOwnerPin(ownerPin);       // 👈 [추가됨] DB owner_pin에 매핑
 
-            book.setIsAvailable(true);
+            // 사전 등록 시에는 대여 목록에 안 뜨게 false로 숨겨둠
+            book.setIsAvailable(false);
             book.setBorrower("");
 
             book.setAuthCode1(authCode1);
@@ -112,21 +114,20 @@ public class BookController {
         }
     }
 
-    // ==========================================
-    // 📱 [앱 전용] 보관/회수 하드웨어 인증 통과 여부 확인 API
-    // ==========================================
     @PostMapping("/app/verify-storage-step1")
     public ResponseEntity<?> appVerifyStorageStep1(@RequestBody Map<String, Object> request) {
         Map<String, Object> res = new HashMap<>();
         try {
-            String storageNo = request.get("cabinetSlot") != null ? request.get("cabinetSlot").toString() : "1";
-            Optional<Book> bookOpt = bookRepository.findTopByStorageNoOrderByIdDesc(storageNo);
-
+            String slotStr = request.get("cabinetSlot") != null ? request.get("cabinetSlot").toString() : "1";
+            List<Book> books = bookRepository.findAllByOrderByIdDesc();
             boolean isPassed = false;
-            if (bookOpt.isPresent()) {
-                Book book = bookOpt.get();
-                if (book.getStep1Passed() != null && book.getStep1Passed()) {
-                    isPassed = true;
+
+            for (Book book : books) {
+                if (book.getStorageNo() != null && book.getStorageNo().contains(slotStr)) {
+                    if (book.getStep1Passed() != null && book.getStep1Passed()) {
+                        isPassed = true;
+                    }
+                    break;
                 }
             }
             res.put("success", isPassed);
@@ -139,9 +140,6 @@ public class BookController {
         }
     }
 
-    // ==========================================
-    // 🔧 [하드웨어용] 보관/회수 1단계 인증 요청 API (RentalController에서 이사 옴!)
-    // ==========================================
     @PostMapping("/hardware/verify-storage-step1")
     public ResponseEntity<?> hardwareVerifyStorage(@RequestBody Map<String, Object> request) {
         Map<String, Object> res = new HashMap<>();
