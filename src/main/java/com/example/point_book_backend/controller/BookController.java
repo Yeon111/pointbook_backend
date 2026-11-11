@@ -66,7 +66,6 @@ public class BookController {
             @RequestParam(value = "condition", required = false) String condition,
             @RequestParam(value = "storageNo", required = false) String storageNo,
             @RequestParam(value = "owner", required = false) String owner,
-            // 👇 1단계 인증코드만 파라미터로 받음 (2단계 제거)
             @RequestParam(value = "auth_code_1", required = false) String authCode1,
             @RequestParam(value = "images", required = false) List<MultipartFile> images) {
 
@@ -97,9 +96,8 @@ public class BookController {
             book.setIsAvailable(true);
             book.setBorrower("");
 
-            // 👇 1단계 인증 코드만 Book DB 필드에 저장
             book.setAuthCode1(authCode1);
-            book.setStep1Passed(false); // 초기 상태 false 설정
+            book.setStep1Passed(false);
 
             String jsonImageArray = imageUrls.isEmpty() ? null : "[\"" + String.join("\",\"", imageUrls) + "\"]";
             book.setImage(jsonImageArray);
@@ -115,19 +113,15 @@ public class BookController {
     }
 
     // ==========================================
-    // 📱 [앱 전용] 보관/회수 하드웨어 인증 통과 여부 확인 API (새로 추가됨)
+    // 📱 [앱 전용] 보관/회수 하드웨어 인증 통과 여부 확인 API
     // ==========================================
     @PostMapping("/app/verify-storage-step1")
     public ResponseEntity<?> appVerifyStorageStep1(@RequestBody Map<String, Object> request) {
         Map<String, Object> res = new HashMap<>();
         try {
-            // 1. 앱에서 보낸 사물함 번호 받기 (Book 엔티티는 String 타입인 storageNo를 쓰므로 String으로 변환)
             String storageNo = request.get("cabinetSlot") != null ? request.get("cabinetSlot").toString() : "1";
-
-            // 2. BookRepository를 뒤져서 해당 사물함의 가장 최근 도서를 가져옴
             Optional<Book> bookOpt = bookRepository.findTopByStorageNoOrderByIdDesc(storageNo);
 
-            // 3. 책이 존재하고, 그 책의 step1Passed 값이 true인지 확인
             boolean isPassed = false;
             if (bookOpt.isPresent()) {
                 Book book = bookOpt.get();
@@ -135,14 +129,32 @@ public class BookController {
                     isPassed = true;
                 }
             }
-
-            // 4. 앱(규빈이)에게 결과 전달
             res.put("success", isPassed);
             return ResponseEntity.ok(res);
 
         } catch (Exception e) {
             e.printStackTrace();
             res.put("success", false);
+            return ResponseEntity.ok(res);
+        }
+    }
+
+    // ==========================================
+    // 🔧 [하드웨어용] 보관/회수 1단계 인증 요청 API (RentalController에서 이사 옴!)
+    // ==========================================
+    @PostMapping("/hardware/verify-storage-step1")
+    public ResponseEntity<?> hardwareVerifyStorage(@RequestBody Map<String, Object> request) {
+        Map<String, Object> res = new HashMap<>();
+        try {
+            Integer cabinetSlot = request.get("cabinetSlot") != null ? Integer.valueOf(request.get("cabinetSlot").toString()) : 1;
+            String inputCode = request.get("authCode") != null ? request.get("authCode").toString() :
+                    (request.get("auth_code_1") != null ? request.get("auth_code_1").toString() : "");
+
+            boolean isMatch = rentalService.verifyStorageStep1(cabinetSlot, inputCode);
+            res.put("open", isMatch);
+            return ResponseEntity.ok(res);
+        } catch (Exception e) {
+            res.put("open", false);
             return ResponseEntity.ok(res);
         }
     }

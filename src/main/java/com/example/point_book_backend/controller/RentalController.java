@@ -106,26 +106,6 @@ public class RentalController {
     }
 
     /**
-     * 1-2. [하드웨어용] 보관/회수 1단계 인증 요청 API
-     */
-    @PostMapping("/hardware/verify-storage-step1")
-    public ResponseEntity<?> hardwareVerifyStorage(@RequestBody Map<String, Object> request) {
-        Map<String, Object> res = new HashMap<>();
-        try {
-            Integer cabinetSlot = request.get("cabinetSlot") != null ? Integer.valueOf(request.get("cabinetSlot").toString()) : 1;
-            String inputCode = request.get("authCode") != null ? request.get("authCode").toString() :
-                    (request.get("auth_code_1") != null ? request.get("auth_code_1").toString() : "");
-
-            boolean isMatch = rentalService.verifyStorageStep1(cabinetSlot, inputCode);
-            res.put("open", isMatch);
-            return ResponseEntity.ok(res);
-        } catch (Exception e) {
-            res.put("open", false);
-            return ResponseEntity.ok(res);
-        }
-    }
-
-    /**
      * 2. [앱 전용] 하드웨어가 인증을 통과했는지 확인하는 API
      */
     @PostMapping("/app/verify-step1")
