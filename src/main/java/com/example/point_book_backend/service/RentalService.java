@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional; // 👈 이중 검증 로직에 사용될 Optional 임포트
 
 @Service
 public class RentalService {
@@ -21,6 +22,9 @@ public class RentalService {
     @Autowired private BookRepository bookRepository;
     @Autowired private UserRepository userRepository;
 
+    // =====================================================================
+    // 1. [대여하기] 기능
+    // =====================================================================
     @Transactional
     public Rental rentBook(String userName, Long bookId, String paymentMethod, Integer rentalHours, Integer totalPoints, String auth_code_1) {
 
@@ -91,6 +95,9 @@ public class RentalService {
         return rentalRepository.saveAndFlush(rental);
     }
 
+    // =====================================================================
+    // 2. [반납하기] 기능
+    // =====================================================================
     @Transactional
     public void returnBook(Long bookId) {
         Book book = bookRepository.findById(bookId)
@@ -113,6 +120,80 @@ public class RentalService {
         }
     }
 
+    // =====================================================================
+    // 3. [보관하기(사전 등록)] - 이중 검증으로 빈자리 탐색 후 도서 등록
+    // =====================================================================
+    @Transactional
+    public Book allocateStorageAndRegisterBook(String title, List<Integer> emptySlotsFromSensor, String authCode1) {
+
+        Integer assignedSlot = null;
+
+        // 1) 센서상 비어있는 사물함 번호들을 순회
+        for (Integer slot : emptySlotsFromSensor) {
+            String slotStr = String.valueOf(slot);
+
+            // 2) DB 교차 검증: 해당 자리에 등록된 가장 최근 도서 조회
+            Optional<Book> lastBookInSlot = bookRepository.findTopByStorageNoOrderByIdDesc(slotStr);
+            boolean isLogicallyOccupied = false;
+
+            if (lastBookInSlot.isPresent()) {
+                Book lb = lastBookInSlot.get();
+
+                // [이중 검증 로직] 대여 중(borrower 존재)이거나 보관 중(isAvailable이 false)이면 사용 중으로 간주
+                if ((lb.getBorrower() != null && !lb.getBorrower().isEmpty()) ||
+                        (lb.getIsAvailable() != null && !lb.getIsAvailable())) {
+                    isLogicallyOccupied = true;
+                }
+            }
+
+            // 3) 물리적, 논리적으로 완벽한 빈자리 발견 시 배정
+            if (!isLogicallyOccupied) {
+                assignedSlot = slot;
+                break;
+            }
+        }
+
+        // 4) 빈자리 없음 예외 처리
+        if (assignedSlot == null) {
+            throw new IllegalStateException("현재 사용 가능한 빈 보관함 구역이 없습니다.");
+        }
+
+        System.out.println("🚨 [이중 검증 완료] 최종 할당된 빈 사물함 번호: " + assignedSlot);
+
+        // 5) 신규 도서 정보 저장
+        Book newBook = new Book();
+        newBook.setTitle(title);
+        newBook.setStorageNo(String.valueOf(assignedSlot));
+        newBook.setAuthCode1(authCode1);
+
+        // 보관 1단계 인증 전이므로 false 처리 (인증 완료 시 true로 변경됨)
+        newBook.setIsAvailable(false);
+        newBook.setStep1Passed(false);
+
+        return bookRepository.saveAndFlush(newBook);
+    }
+
+    // =====================================================================
+    // 4. [회수하기] 기능 - 주인이 책을 완전히 빼갈 때 호출
+    // =====================================================================
+    @Transactional
+    public void retrieveBook(Long bookId) {
+        Book book = bookRepository.findById(bookId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 도서 ID입니다: " + bookId));
+
+        // 회수 시 더 이상 앱 목록에 뜨지 않고, 이 자리는 이제 남이 쓸 수 있는 완전한 빈자리가 됨
+        book.setIsAvailable(false);
+        book.setBorrower("");
+        book.setStep1Passed(false);
+        // 상태 필드가 별도로 있다면 (예: book.setStatus("RETRIEVED")) 추가 가능
+
+        bookRepository.saveAndFlush(book);
+        System.out.println("🚨 [도서 회수 완료] 도서 ID " + bookId + "의 자리가 완전히 비워졌습니다.");
+    }
+
+    // =====================================================================
+    // 기타 검증 및 보조 로직
+    // =====================================================================
     @Transactional
     public void saveSequentialAuthCodes(Integer cabinetSlot, String auth_code_1) {
         Rental rental = rentalRepository.findTopByOrderByIdDesc()
@@ -154,9 +235,9 @@ public class RentalService {
             boolean isSlotMatch = book.getStorageNo() != null && book.getStorageNo().contains(String.valueOf(cabinetSlot));
 
             if (isSlotMatch && book.getAuthCode1() != null && book.getAuthCode1().equals(cleanInput)) {
-                book.setStep1Passed(true); // 통과 상태 기록
+                book.setStep1Passed(true);
 
-                // 👇 [수정됨] 하드웨어 인증이 완벽히 끝났으므로 이제 앱 대여 목록에 뜨도록 true로 변경!
+                // 하드웨어 인증 완료 후 대여 목록 활성화
                 book.setIsAvailable(true);
 
                 bookRepository.saveAndFlush(book);
