@@ -85,11 +85,37 @@ public class RentalController {
         }
     }
 
-    /**
-     * 1-1. [하드웨어용] 대여/반납 1단계 인증 요청 API
-     */
+    // =========================================================================
+    // 🚨 [핵심 수정됨] 하드웨어용 대여/반납 1단계 인증 요청 API
+    // 띄어쓰기 문제로 하드웨어가 인식 못하는 현상을 원천 차단하기 위해 문자열로 쏴줌!
+    // =========================================================================
     @PostMapping("/hardware/verify-rental-step1")
     public ResponseEntity<?> hardwareVerifyRental(@RequestBody Map<String, Object> request) {
+        try {
+            Integer cabinetSlot = request.get("cabinetSlot") != null ? Integer.valueOf(request.get("cabinetSlot").toString()) : 1;
+            String inputCode = request.get("authCode") != null ? request.get("authCode").toString() :
+                    (request.get("auth_code_1") != null ? request.get("auth_code_1").toString() : "");
+
+            boolean isMatch = rentalService.verifyRentalStep1(cabinetSlot, inputCode);
+
+            // 아두이노가 찾는 정확한 포맷("open":true)으로 공백 없이 문자열 자체를 리턴합니다.
+            String safeJsonResponse = isMatch ? "{\"success\":true,\"open\":true}" : "{\"success\":false,\"open\":false}";
+
+            return ResponseEntity.ok()
+                    .header("Content-Type", "application/json")
+                    .body(safeJsonResponse);
+        } catch (Exception e) {
+            return ResponseEntity.ok()
+                    .header("Content-Type", "application/json")
+                    .body("{\"success\":false,\"open\":false}");
+        }
+    }
+
+    // =========================================================================
+    // 🚀 [수정됨] 앱 전용 대여/반납 검증 API (프론트엔드 통신 주소 매칭)
+    // =========================================================================
+    @PostMapping("/app/verify-rental-step1")
+    public ResponseEntity<?> appVerifyRentalStep1(@RequestBody Map<String, Object> request) {
         Map<String, Object> res = new HashMap<>();
         try {
             Integer cabinetSlot = request.get("cabinetSlot") != null ? Integer.valueOf(request.get("cabinetSlot").toString()) : 1;
@@ -97,28 +123,13 @@ public class RentalController {
                     (request.get("auth_code_1") != null ? request.get("auth_code_1").toString() : "");
 
             boolean isMatch = rentalService.verifyRentalStep1(cabinetSlot, inputCode);
-            res.put("open", isMatch);
-            return ResponseEntity.ok(res);
-        } catch (Exception e) {
-            res.put("open", false);
-            return ResponseEntity.ok(res);
-        }
-    }
 
-    /**
-     * 2. [앱 전용] 하드웨어가 인증을 통과했는지 확인하는 API
-     */
-    @PostMapping("/app/verify-step1")
-    public ResponseEntity<?> appVerifyStep1(@RequestBody Map<String, Object> request) {
-        Map<String, Object> res = new HashMap<>();
-        try {
-            Integer cabinetSlot = request.get("cabinetSlot") != null ? Integer.valueOf(request.get("cabinetSlot").toString()) : 1;
-
-            boolean isPassed = rentalService.appCheckStep1Status(cabinetSlot);
-            res.put("success", isPassed);
+            res.put("success", isMatch);
+            res.put("open", isMatch); // 앱, 하드웨어 호환성 확보
             return ResponseEntity.ok(res);
         } catch (Exception e) {
             res.put("success", false);
+            res.put("open", false);
             return ResponseEntity.ok(res);
         }
     }

@@ -62,9 +62,9 @@ public class BookController {
             @RequestParam(value = "publisher", required = false) String publisher,
             @RequestParam(value = "condition", required = false) String condition,
             @RequestParam(value = "storageNo", required = false) String storageNo,
-            @RequestParam(value = "lockerNo", required = false) String lockerNo,     // 👈 [추가됨] 구역 정보 수신
+            @RequestParam(value = "lockerNo", required = false) String lockerNo,
             @RequestParam(value = "owner", required = false) String owner,
-            @RequestParam(value = "ownerPin", required = false) String ownerPin,     // 👈 [추가됨] 소유자 핀번호 수신
+            @RequestParam(value = "ownerPin", required = false) String ownerPin,
             @RequestParam(value = "auth_code_1", required = false) String authCode1,
             @RequestParam(value = "images", required = false) List<MultipartFile> images) {
 
@@ -90,11 +90,10 @@ public class BookController {
             book.setPublisher(publisher);
             book.setCondition(condition);
             book.setStorageNo(storageNo);
-            book.setLockerNo(lockerNo);       // 👈 [추가됨] DB locker_no에 매핑
+            book.setLockerNo(lockerNo);
             book.setOwner(owner);
-            book.setOwnerPin(ownerPin);       // 👈 [추가됨] DB owner_pin에 매핑
+            book.setOwnerPin(ownerPin);
 
-            // 사전 등록 시에는 대여 목록에 안 뜨게 false로 숨겨둠
             book.setIsAvailable(false);
             book.setBorrower("");
 
@@ -114,6 +113,34 @@ public class BookController {
         }
     }
 
+    // =========================================================================
+    // 🚀 [추가됨] 회수하기(Retrieve) 시 하드웨어 검증을 위해 새 임시 인증번호 업데이트 API
+    // =========================================================================
+    @PostMapping("/books/auth-code")
+    public ResponseEntity<?> updateBookAuthCode(@RequestBody Map<String, Object> request) {
+        try {
+            Long bookId = Long.valueOf(request.get("bookId").toString());
+            String newAuthCode = request.get("auth_code_1").toString();
+
+            Book book = bookRepository.findById(bookId)
+                    .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 도서입니다."));
+
+            // 기존 인증번호를 앱에서 새로 생성한 회수용 번호로 덮어씌움
+            book.setAuthCode1(newAuthCode);
+            book.setStep1Passed(false); // 새로운 인증을 위해 통과 상태 초기화
+
+            bookRepository.saveAndFlush(book);
+
+            return ResponseEntity.ok(Map.of("success", true, "message", "회수용 인증번호 동기화 완료"));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+
+    // =========================================================================
+    // 🚀 [수정됨] 앱에서 요청하는 보관/회수 검증 (앱도 success, open 모두 수신)
+    // =========================================================================
     @PostMapping("/app/verify-storage-step1")
     public ResponseEntity<?> appVerifyStorageStep1(@RequestBody Map<String, Object> request) {
         Map<String, Object> res = new HashMap<>();
@@ -131,29 +158,40 @@ public class BookController {
                 }
             }
             res.put("success", isPassed);
+            res.put("open", isPassed); // 앱, 하드웨어 호환성 확보
             return ResponseEntity.ok(res);
 
         } catch (Exception e) {
             e.printStackTrace();
             res.put("success", false);
+            res.put("open", false);
             return ResponseEntity.ok(res);
         }
     }
 
+    // =========================================================================
+    // 🚨 [핵심 수정됨] 하드웨어(ESP8266)에서 요청하는 보관/회수 검증
+    // 띄어쓰기 문제로 하드웨어가 인식 못하는 현상을 원천 차단하기 위해 문자열로 쏴줌!
+    // =========================================================================
     @PostMapping("/hardware/verify-storage-step1")
     public ResponseEntity<?> hardwareVerifyStorage(@RequestBody Map<String, Object> request) {
-        Map<String, Object> res = new HashMap<>();
         try {
             Integer cabinetSlot = request.get("cabinetSlot") != null ? Integer.valueOf(request.get("cabinetSlot").toString()) : 1;
             String inputCode = request.get("authCode") != null ? request.get("authCode").toString() :
                     (request.get("auth_code_1") != null ? request.get("auth_code_1").toString() : "");
 
             boolean isMatch = rentalService.verifyStorageStep1(cabinetSlot, inputCode);
-            res.put("open", isMatch);
-            return ResponseEntity.ok(res);
+
+            // 아두이노가 찾는 정확한 포맷("open":true)으로 공백 없이 문자열 자체를 리턴합니다.
+            String safeJsonResponse = isMatch ? "{\"success\":true,\"open\":true}" : "{\"success\":false,\"open\":false}";
+
+            return ResponseEntity.ok()
+                    .header("Content-Type", "application/json")
+                    .body(safeJsonResponse);
         } catch (Exception e) {
-            res.put("open", false);
-            return ResponseEntity.ok(res);
+            return ResponseEntity.ok()
+                    .header("Content-Type", "application/json")
+                    .body("{\"success\":false,\"open\":false}");
         }
     }
 

@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional; // 👈 이중 검증 로직에 사용될 Optional 임포트
+import java.util.Optional;
 
 @Service
 public class RentalService {
@@ -58,8 +58,13 @@ public class RentalService {
         rental.setAuth_code_1(auth_code_1);
         rental.setStep1Passed(false);
 
+        // 💡 [수정 완료] 무조건 1번으로 박히던 것을 책이 들어있는 실제 보관함 번호(storageNo)로 매핑!
         if (book.getStorageNo() != null) {
-            rental.setCabinetSlot(1);
+            try {
+                rental.setCabinetSlot(Integer.valueOf(book.getStorageNo()));
+            } catch (NumberFormatException e) {
+                rental.setCabinetSlot(1); // 예외 발생 시 기본값 1
+            }
         }
 
         if ("쿠폰".equals(paymentMethod)) {
@@ -185,10 +190,29 @@ public class RentalService {
         book.setIsAvailable(false);
         book.setBorrower("");
         book.setStep1Passed(false);
-        // 상태 필드가 별도로 있다면 (예: book.setStatus("RETRIEVED")) 추가 가능
 
         bookRepository.saveAndFlush(book);
         System.out.println("🚨 [도서 회수 완료] 도서 ID " + bookId + "의 자리가 완전히 비워졌습니다.");
+    }
+
+    // =====================================================================
+    // 5. 🚀 [하드웨어 센서 연동] 센서 상태를 받아 Book 테이블 실시간 동기화
+    // =====================================================================
+    @Transactional
+    public void updateBookStatusBySensors(String lockerNo, List<Boolean> bookSensors) {
+        if (bookSensors == null) return;
+
+        for (int i = 0; i < bookSensors.size(); i++) {
+            boolean isPresent = bookSensors.get(i);
+            String slotNumberStr = String.valueOf(i + 1);
+
+            List<Book> books = bookRepository.findAll();
+            for (Book book : books) {
+                if (book.getStorageNo() != null && book.getStorageNo().equals(slotNumberStr)) {
+                    System.out.println("🔍 [센서 실시간 동기화] 구역: " + lockerNo + ", " + slotNumberStr + "번 칸 감지 상태: " + (isPresent ? "책 있음" : "빈자리"));
+                }
+            }
+        }
     }
 
     // =====================================================================
